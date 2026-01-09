@@ -28,7 +28,7 @@ export const TRADING_FEE_RATE = 0.0005; // 0.05% Taker Fee (Realistic Futures Fe
 export const TRAILING_STOP_GAP = 0.003; // 0.3% Trailing
 
 // SAFETY & RATE LIMITING
-export const MIN_AI_INTERVAL = 10000; // 10 Seconds - Gives AI time to think and user time to read.
+export const MIN_AI_INTERVAL = 15000; // 15 Seconds - Respects Gemini Rate Limits (4 RPM)
 
 // AI Persona System Instruction - AUTONOMOUS AGENT
 export const AI_SYSTEM_INSTRUCTION = `

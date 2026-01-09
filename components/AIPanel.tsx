@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { AISignal, SignalType } from '../types';
 
@@ -14,6 +13,7 @@ export const AIPanel: React.FC<AIPanelProps> = ({ signal, loading, onAnalyze }) 
     switch (s) {
       case SignalType.BUY: return 'text-trade-green border-trade-green';
       case SignalType.SELL: return 'text-trade-red border-trade-red';
+      case SignalType.HOLD: return 'text-blue-400 border-blue-600';
       default: return 'text-trade-muted border-trade-muted';
     }
   };

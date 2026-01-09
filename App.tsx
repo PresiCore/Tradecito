@@ -88,29 +88,58 @@ const App: React.FC = () => {
 
   // --- ANALYSIS ENGINE ---
   const handleScanMarket = async () => {
-    // If we already have a position on THIS symbol, don't scan for entry.
-    // But we continue to scan other symbols via rotation.
-    if (positionsRef.current.find(p => p.symbol === symbolRef.current)) {
-        // Already active on this coin.
+    const now = Date.now();
+    const currentPrice = ticker?.price || (candlesRef.current.length > 0 ? candlesRef.current[candlesRef.current.length-1].close : 0);
+
+    // GUARD 1: Position Active on this Symbol
+    // Instead of just returning, we generate a SYNTHETIC "HOLD" SIGNAL so the UI looks alive.
+    const existingPosition = positionsRef.current.find(p => p.symbol === symbolRef.current);
+    if (existingPosition) {
         setValidationMsg("Position Active");
+        
+        // Calc live PnL for display
+        const pnl = (currentPrice - existingPosition.entryPrice) * existingPosition.amount * (existingPosition.type === 'LONG' ? 1 : -1);
+        const pnlPct = (pnl / existingPosition.initialMargin) * 100;
+
+        setAiSignal({
+            action: SignalType.HOLD,
+            confidence: 100,
+            leverage: existingPosition.leverage,
+            reasoning: `Active Position Monitoring: ${existingPosition.type} @ ${existingPosition.entryPrice}. Current PnL: ${pnl.toFixed(2)} USDT (${pnlPct.toFixed(2)}%). Managing via Trailing Stop.`,
+            targets: {
+                stopLoss: existingPosition.sl,
+                takeProfit: existingPosition.tp
+            },
+            timestamp: now
+        });
+
         if (autoModeRef.current) {
             // Fast rotation if we already have a position here. 
-            // 5s delay so user sees "Position Active" before switch.
+            // SLOWED DOWN: Wait 6s (was 4s) to let user read the PnL
             if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
-            scanTimeoutRef.current = setTimeout(rotateAsset, 5000); 
+            scanTimeoutRef.current = setTimeout(rotateAsset, 6000); 
         }
         return;
     }
 
     if (isExecutingRef.current) return;
 
-    const now = Date.now();
+    // GUARD 2: RPM Protection
+    // If cooling down, show a WAIT signal instead of empty screen
     const timeElapsed = now - lastScanTimeRef.current;
-
-    // RPM PROTECTION
     if (timeElapsed < MIN_AI_INTERVAL) {
         const remainingTime = MIN_AI_INTERVAL - timeElapsed + 500;
         setIsCoolingDown(true);
+
+        // Only update signal if it's null (first load) to avoid flickering
+        setAiSignal(prev => prev || {
+             action: SignalType.WAIT,
+             confidence: 0,
+             leverage: 0,
+             reasoning: `Cooling down neural engine... ${(remainingTime/1000).toFixed(1)}s`,
+             targets: { stopLoss: 0, takeProfit: 0 },
+             timestamp: now
+        });
 
         if (autoModeRef.current) {
             if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
@@ -125,13 +154,23 @@ const App: React.FC = () => {
         return;
     }
 
-    // DEADLOCK PREVENTION: If candles are empty (fetch failed), force rotate
+    // GUARD 3: No Data
     if (candlesRef.current.length === 0) {
         console.warn(`[HUNTER] No candle data for ${symbolRef.current}. Skipping...`);
         setValidationMsg("No Data - Skipping");
+        
+        setAiSignal({
+            action: SignalType.WAIT,
+            confidence: 0,
+            leverage: 0,
+            reasoning: `Market data stream interrupted for ${symbolRef.current}. Moving to next asset...`,
+            targets: { stopLoss: 0, takeProfit: 0 },
+            timestamp: now
+        });
+
         if (autoModeRef.current) {
             if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
-            scanTimeoutRef.current = setTimeout(rotateAsset, 2000);
+            scanTimeoutRef.current = setTimeout(rotateAsset, 3000);
         }
         return;
     }
@@ -144,9 +183,7 @@ const App: React.FC = () => {
     try {
       const { m5, m15 } = await fetchMultiFrameCandles(symbolRef.current);
 
-      // We pass the SPECIFIC position for this symbol (which is null here due to check above)
-      // but we pass full balance context.
-      const signal = await analyzeMarketData(
+      let signal = await analyzeMarketData(
           symbolRef.current, 
           candlesRef.current, 
           m5,                 
@@ -155,6 +192,18 @@ const App: React.FC = () => {
           balanceRef.current,
           tradeHistoryRef.current 
       );
+      
+      // Fallback if API fails
+      if (!signal) {
+          signal = {
+              action: SignalType.WAIT,
+              confidence: 0,
+              leverage: 1,
+              reasoning: "Neural analysis inconclusive or data insufficient. Continuing scan...",
+              targets: { stopLoss: 0, takeProfit: 0 },
+              timestamp: Date.now()
+          };
+      }
       
       setAiSignal(signal);
 
@@ -168,18 +217,15 @@ const App: React.FC = () => {
                    setValidationMsg(`Low Conf: ${signal.confidence}%`);
                    setAiSignal(prev => prev ? ({...prev, reasoning: `[SKIPPED: Conf < 65%] ${prev.reasoning}`}) : null);
                    
-                   // Wait 5s then rotate (Allow user to read the reasoning)
+                   // SLOWED DOWN: Wait 8s (was 5s) to let user read the reasoning
                    if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
-                   scanTimeoutRef.current = setTimeout(rotateAsset, 5000);
+                   scanTimeoutRef.current = setTimeout(rotateAsset, 8000);
                    return;
               }
 
-              // CRITICAL: Use REAL-TIME price for execution, not the candle close used by AI
-              // This prevents "Price Drift" errors where price moved while AI was thinking
               const executionPrice = pricesRef.current[symbolRef.current] || ticker?.price || candlesRef.current[candlesRef.current.length-1].close;
               
               // FORCE EXECUTION LOGIC (Auto-Adjust instead of Reject)
-              // Minimum safe distance to cover fees and spread (0.05%)
               const minDistance = executionPrice * 0.0005; 
               
               let finalTP = signal.targets.takeProfit;
@@ -187,12 +233,10 @@ const App: React.FC = () => {
               let adjusted = false;
 
               if (signal.action === SignalType.BUY) {
-                  // If TP is lower than current price + minDistance, FORCE it higher
                   if (finalTP <= executionPrice + minDistance) {
-                      finalTP = executionPrice + (minDistance * 3); // Aim for 0.15% min
+                      finalTP = executionPrice + (minDistance * 3); 
                       adjusted = true;
                   }
-                  // If SL is higher than current price - minDistance, FORCE it lower
                   if (finalSL >= executionPrice - minDistance) {
                       finalSL = executionPrice - (minDistance * 2);
                       adjusted = true;
@@ -210,7 +254,6 @@ const App: React.FC = () => {
 
               if (adjusted) {
                   console.log(`[EXECUTION] Targets adjusted for safety on ${symbolRef.current}`);
-                  // Update the signal in UI to show we adjusted it
                   setAiSignal(prev => prev ? ({
                       ...prev, 
                       targets: { takeProfit: finalTP, stopLoss: finalSL },
@@ -223,14 +266,13 @@ const App: React.FC = () => {
               if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
 
               const selectedLeverage = Math.min(Math.max(1, signal.leverage), 20); 
-              // Position Sizing: Use 20% of balance per trade to allow multiple positions
               const margin = Math.min(balanceRef.current * 0.20, 20); 
               
               if (margin < 5) {
                    console.log("Insufficient funds for new position");
                    setValidationMsg("No Funds");
                    isExecutingRef.current = false;
-                   scanTimeoutRef.current = setTimeout(rotateAsset, 5000);
+                   scanTimeoutRef.current = setTimeout(rotateAsset, 8000);
                    return;
               }
 
@@ -258,24 +300,33 @@ const App: React.FC = () => {
               console.log(`OPENED: ${type} ${symbolRef.current} @ ${executionPrice}`);
               
               // Unlock and rotate after a delay to watch the trade start.
-              // Increased to 8s so user can admire the new trade.
+              // SLOWED DOWN: Wait 12s (was 8s) to celebrate the trade
               setTimeout(() => {
                   isExecutingRef.current = false;
                   if (autoModeRef.current) rotateAsset();
-              }, 8000); 
+              }, 12000); 
 
           } else {
               // NO SIGNAL -> ROTATE
-              // Wait 5s so user sees the "WAIT/HOLD" signal and reasoning
+              // SLOWED DOWN: Wait 8s (was 5s)
               if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
-              scanTimeoutRef.current = setTimeout(rotateAsset, 5000); 
+              scanTimeoutRef.current = setTimeout(rotateAsset, 8000); 
           }
       }
 
     } catch (e) {
       console.error(e);
+      setAiSignal({
+          action: SignalType.WAIT,
+          confidence: 0,
+          leverage: 1,
+          reasoning: "System Alert: Analysis Engine interrupted. Rotating to next asset...",
+          targets: { stopLoss: 0, takeProfit: 0 },
+          timestamp: Date.now()
+      });
+
       if(autoModeRef.current) {
-          scanTimeoutRef.current = setTimeout(rotateAsset, 5000); // Retry slow
+          scanTimeoutRef.current = setTimeout(rotateAsset, 8000); 
       }
     } finally {
       setIsAiLoading(false);
@@ -283,8 +334,6 @@ const App: React.FC = () => {
   };
 
   const rotateAsset = () => {
-    // Rotation is now allowed even if we have positions, 
-    // unless we are currently executing an Open Order logic.
     if (isExecutingRef.current) return;
 
     if (autoModeRef.current) {
@@ -301,7 +350,15 @@ const App: React.FC = () => {
     if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
     
     setTicker(null); 
-    setAiSignal(null);
+    // IMMEDIATE FEEDBACK: Don't set to null, set to 'Scanning' so UI doesn't look dead
+    setAiSignal({
+        action: SignalType.WAIT,
+        confidence: 0,
+        leverage: 0,
+        reasoning: `Scanning market structure for ${currentSymbol}...`,
+        targets: { stopLoss: 0, takeProfit: 0 },
+        timestamp: Date.now()
+    });
     setValidationMsg(null);
     setIsCoolingDown(false);
     candlesRef.current = [];
@@ -309,12 +366,14 @@ const App: React.FC = () => {
     const initData = async () => {
       const history = await fetchHistoricalCandles(currentSymbol, DEFAULT_INTERVAL);
       
-      // DEADLOCK PREVENTION: If init fetch fails, force rotate quickly
+      // DEADLOCK PREVENTION
       if (!history || history.length === 0) {
           console.warn(`[HUNTER] Init failed for ${currentSymbol}. Skipping...`);
           setValidationMsg("Data Fetch Failed");
+          // Ensure signal is explicit about failure
+          setAiSignal(prev => ({...prev!, reasoning: "Connection failed. Retrying..."}));
           if (autoModeRef.current) {
-             scanTimeoutRef.current = setTimeout(rotateAsset, 1500);
+             scanTimeoutRef.current = setTimeout(rotateAsset, 3000);
           }
           return;
       }
@@ -322,7 +381,7 @@ const App: React.FC = () => {
       setCandles(history);
       candlesRef.current = history;
       
-      // Wait 2.5s (increased) then scan to ensure charts are fully loaded
+      // Wait 2.5s then scan
       if (autoModeRef.current) {
           scanTimeoutRef.current = setTimeout(() => handleScanMarket(), 2500);
       }
@@ -332,7 +391,6 @@ const App: React.FC = () => {
     // Subscribe to Main Ticker for UI
     const unsubTicker = subscribeToTicker(currentSymbol, (data) => {
       setTicker(data);
-      // Also update the global price cache for this symbol
       pricesRef.current[data.symbol] = data.price;
     });
 
@@ -363,7 +421,6 @@ const App: React.FC = () => {
   }, [currentSymbol]);
 
   // --- GLOBAL EXECUTION CHECKER ---
-  // Runs on every ticker update from ANY asset in the portfolio
   const checkGlobalAutoExecution = (symbol: string, currentPrice: number) => {
       const activePositions = positionsRef.current;
       const pos = activePositions.find(p => p.symbol === symbol);
@@ -416,7 +473,6 @@ const App: React.FC = () => {
       if (closed && result) {
           closePositionInternal(currentPrice, result, pos);
       } else if (positionUpdated) {
-          // Update specific position in array
           setPositions(prev => prev.map(p => p.id === pos.id ? updatedPos : p));
       }
   };
@@ -435,7 +491,6 @@ const App: React.FC = () => {
     
     const netPnL = grossPnL - totalFees;
     
-    // Return margin + profit to balance
     const returnAmount = pos.initialMargin + netPnL;
     
     setBalance(prev => Math.max(0, prev + returnAmount));
@@ -454,14 +509,12 @@ const App: React.FC = () => {
     
     console.log(`CLOSED ${pos.symbol} (${result}): ${netPnL.toFixed(2)} USDT`);
     
-    // If we closed the symbol we are currently looking at, update UI signal
     if (pos.symbol === symbolRef.current) {
         setAiSignal(prev => prev ? { ...prev, action: SignalType.WAIT, reasoning: `Closed ${pos.symbol}. Net: ${netPnL.toFixed(2)}` } : null);
     }
   };
 
   const manualClose = (targetPos: Position) => {
-      // Use global price cache for manual close if ticker is not available
       const price = pricesRef.current[targetPos.symbol];
       if (!price) {
           alert("Price data not yet available for " + targetPos.symbol);
@@ -492,7 +545,6 @@ const App: React.FC = () => {
       }
   };
 
-  // Helper to get active position for current chart
   const currentChartPosition = positions.find(p => p.symbol === currentSymbol) || null;
 
   return (
