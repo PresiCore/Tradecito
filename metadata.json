@@ -1,0 +1,5 @@
+{
+  "name": "BinanceAI Trader Pro",
+  "description": "Professional AI-enhanced trading dashboard visualizing real-time Binance market data with predictive analytics driven by Gemini 3.",
+  "requestFramePermissions": []
+}
