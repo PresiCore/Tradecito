@@ -1,7 +1,8 @@
+
 import React, { useMemo } from 'react';
-import { ComposedChart, Bar, Line, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine, Label } from 'recharts';
+import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine, Label } from 'recharts';
 import { CandleData, Position } from '../types';
-import { calculateBollingerBands } from '../utils/technicalAnalysis';
+import { calculateBollingerBands, applyKalmanFilter } from '../utils/technicalAnalysis';
 
 interface CandleChartProps {
   data: CandleData[];
@@ -41,11 +42,10 @@ const CustomTooltip = ({ active, payload, label }: any) => {
         <p className="text-trade-muted mb-1 pb-1 border-b border-gray-700">{new Date(data.time).toLocaleTimeString()}</p>
         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
             <span className="text-trade-muted">Price:</span> <span className="text-white text-right">{data.close.toFixed(2)}</span>
-            {data.bbUpper && (
-              <>
-                 <span className="text-blue-400">BB Upper:</span> <span className="text-blue-400 text-right">{data.bbUpper.toFixed(2)}</span>
-                 <span className="text-blue-400">BB Lower:</span> <span className="text-blue-400 text-right">{data.bbLower.toFixed(2)}</span>
-              </>
+            {data.kalman && (
+                 <>
+                    <span className="text-purple-400">Kalman (Filter):</span> <span className="text-purple-400 text-right">{data.kalman.toFixed(2)}</span>
+                 </>
             )}
             <span className="text-trade-muted">Vol:</span> <span className="text-white text-right">{Math.floor(data.volume)}</span>
         </div>
@@ -56,30 +56,29 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 export const CandleChart: React.FC<CandleChartProps> = ({ data, activePosition }) => {
-  // Calculate BB for visualization
+  // Calculate Indicators for visualization
   const chartData = useMemo(() => {
     const bb = calculateBollingerBands(data, 20, 2);
+    const kalman = applyKalmanFilter(data); // Calculate Kalman Filter
+
     return data.map((d, i) => ({
         ...d,
         bbUpper: bb[i].upper,
         bbLower: bb[i].lower,
-        bbMiddle: bb[i].middle
+        kalman: kalman[i] // Add Kalman to data
     }));
   }, [data]);
 
-  if (!data || data.length === 0) return <div className="flex items-center justify-center h-full text-trade-muted text-xs animate-pulse">Loading Market Data...</div>;
+  if (!data || data.length === 0) return <div className="flex items-center justify-center h-full text-trade-muted text-xs animate-pulse">Initializing Antigravity Matrix...</div>;
 
-  // Calculate Domain considering Candles AND Active Position Targets
   let minPrice = Math.min(...data.map(d => d.low));
   let maxPrice = Math.max(...data.map(d => d.high));
 
   if (activePosition) {
-    // Force the domain to include TP, SL and Entry
     minPrice = Math.min(minPrice, activePosition.sl, activePosition.tp, activePosition.entryPrice);
     maxPrice = Math.max(maxPrice, activePosition.sl, activePosition.tp, activePosition.entryPrice);
   }
 
-  // Add padding so lines aren't on the very edge
   const padding = (maxPrice - minPrice) * 0.1;
   const yDomain = [minPrice - padding, maxPrice + padding];
 
@@ -126,68 +125,30 @@ export const CandleChart: React.FC<CandleChartProps> = ({ data, activePosition }
             isAnimationActive={false} 
           />
           
-          {/* Bollinger Bands */}
+          {/* Kalman Filter Line - The "Antigravity" Curve */}
           <Line 
             yAxisId="price" 
             type="monotone" 
-            dataKey="bbUpper" 
-            stroke="#3b82f6" 
-            strokeWidth={1} 
+            dataKey="kalman" 
+            stroke="#a855f7" // Purple
+            strokeWidth={2} 
             dot={false} 
-            strokeOpacity={0.5}
-            isAnimationActive={false}
-          />
-          <Line 
-            yAxisId="price" 
-            type="monotone" 
-            dataKey="bbLower" 
-            stroke="#3b82f6" 
-            strokeWidth={1} 
-            dot={false} 
-            strokeOpacity={0.5}
-            isAnimationActive={false}
-          />
-           <Line 
-            yAxisId="price" 
-            type="monotone" 
-            dataKey="bbMiddle" 
-            stroke="#eab308" 
-            strokeWidth={1} 
-            dot={false} 
-            opacity={0.6}
             isAnimationActive={false}
           />
 
-          {/* Visualization of TP and SL for CURRENT Asset */}
+          {/* Bollinger Bands (Subtle) */}
+          <Line yAxisId="price" type="monotone" dataKey="bbUpper" stroke="#3b82f6" strokeWidth={1} dot={false} strokeOpacity={0.2} isAnimationActive={false}/>
+          <Line yAxisId="price" type="monotone" dataKey="bbLower" stroke="#3b82f6" strokeWidth={1} dot={false} strokeOpacity={0.2} isAnimationActive={false}/>
+
           {activePosition && (
             <>
-              <ReferenceLine 
-                yAxisId="price" 
-                y={activePosition.tp} 
-                stroke="#0ecb81" 
-                strokeWidth={2}
-                strokeDasharray="4 2"
-              >
+              <ReferenceLine yAxisId="price" y={activePosition.tp} stroke="#0ecb81" strokeWidth={2} strokeDasharray="4 2">
                 <Label value={`TP ${activePosition.tp.toFixed(2)}`} position="insideTopRight" fill="#0ecb81" fontSize={11} fontWeight="bold" offset={-10} />
               </ReferenceLine>
-
-              <ReferenceLine 
-                yAxisId="price" 
-                y={activePosition.sl} 
-                stroke="#f6465d" 
-                strokeWidth={2}
-                strokeDasharray="4 2"
-              >
+              <ReferenceLine yAxisId="price" y={activePosition.sl} stroke="#f6465d" strokeWidth={2} strokeDasharray="4 2">
                  <Label value={`SL ${activePosition.sl.toFixed(2)}`} position="insideBottomRight" fill="#f6465d" fontSize={11} fontWeight="bold" offset={-10} />
               </ReferenceLine>
-
-              <ReferenceLine 
-                yAxisId="price" 
-                y={activePosition.entryPrice} 
-                stroke="#FCD535" 
-                strokeWidth={1}
-                strokeOpacity={0.8}
-              >
+              <ReferenceLine yAxisId="price" y={activePosition.entryPrice} stroke="#FCD535" strokeWidth={1} strokeOpacity={0.8}>
                 <Label value="ENTRY" position="right" fill="#FCD535" fontSize={10} />
               </ReferenceLine>
             </>

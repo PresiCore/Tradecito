@@ -7,6 +7,7 @@ export interface CandleData {
   low: number;
   close: number;
   volume: number;
+  kalman?: number; // Estimated "True" Value
 }
 
 export interface TickerData {
@@ -25,15 +26,24 @@ export enum SignalType {
   WAIT = 'WAIT'
 }
 
+export interface QuantMetrics {
+  hurst: number;         // 0-0.5 (Mean Rev), 0.5-1.0 (Trend)
+  kalmanPrice: number;   // Denoised Price
+  atr: number;           // Volatility
+  volatilityIndex: number; // Normalized volatility
+  kellyPercent: number;  // Optimal position size %
+}
+
 export interface AISignal {
   action: SignalType;
   confidence: number;
-  leverage: number; // NEW: Dynamic leverage decided by AI
+  leverage: number; 
   reasoning: string;
   targets: {
     stopLoss: number;
     takeProfit: number;
   };
+  quantMetrics?: QuantMetrics; // Attached for UI visualization
   timestamp: number;
 }
 
@@ -43,7 +53,7 @@ export interface Position {
   symbol: string;
   entryPrice: number;
   amount: number; // Total size in crypto units (Leveraged)
-  leverage: number; // e.g. 10
+  leverage: number; 
   initialMargin: number; // USDT invested from wallet
   type: 'LONG' | 'SHORT'; 
   tp: number;

@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useRef } from 'react';
 import { fetchHistoricalCandles, fetchMultiFrameCandles, subscribeToCandles, subscribeToTicker, subscribeToOrderBook, subscribeToMultiTicker } from './services/binanceService';
 import { analyzeMarketData } from './services/geminiService';
@@ -95,7 +96,7 @@ const App: React.FC = () => {
     // Instead of just returning, we generate a SYNTHETIC "HOLD" SIGNAL so the UI looks alive.
     const existingPosition = positionsRef.current.find(p => p.symbol === symbolRef.current);
     if (existingPosition) {
-        setValidationMsg("Position Active");
+        setValidationMsg("Monitoring Position");
         
         // Calc live PnL for display
         const pnl = (currentPrice - existingPosition.entryPrice) * existingPosition.amount * (existingPosition.type === 'LONG' ? 1 : -1);
@@ -105,7 +106,7 @@ const App: React.FC = () => {
             action: SignalType.HOLD,
             confidence: 100,
             leverage: existingPosition.leverage,
-            reasoning: `Active Position Monitoring: ${existingPosition.type} @ ${existingPosition.entryPrice}. Current PnL: ${pnl.toFixed(2)} USDT (${pnlPct.toFixed(2)}%). Managing via Trailing Stop.`,
+            reasoning: `ANTIGRAVITY GUARD: Managing active ${existingPosition.type} position. PnL: ${pnl.toFixed(2)} USDT. Denoising price action...`,
             targets: {
                 stopLoss: existingPosition.sl,
                 takeProfit: existingPosition.tp
@@ -114,8 +115,6 @@ const App: React.FC = () => {
         });
 
         if (autoModeRef.current) {
-            // Fast rotation if we already have a position here. 
-            // SLOWED DOWN: Wait 6s (was 4s) to let user read the PnL
             if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
             scanTimeoutRef.current = setTimeout(rotateAsset, 6000); 
         }
@@ -125,18 +124,16 @@ const App: React.FC = () => {
     if (isExecutingRef.current) return;
 
     // GUARD 2: RPM Protection
-    // If cooling down, show a WAIT signal instead of empty screen
     const timeElapsed = now - lastScanTimeRef.current;
     if (timeElapsed < MIN_AI_INTERVAL) {
         const remainingTime = MIN_AI_INTERVAL - timeElapsed + 500;
         setIsCoolingDown(true);
 
-        // Only update signal if it's null (first load) to avoid flickering
         setAiSignal(prev => prev || {
              action: SignalType.WAIT,
              confidence: 0,
              leverage: 0,
-             reasoning: `Cooling down neural engine... ${(remainingTime/1000).toFixed(1)}s`,
+             reasoning: `Calibrating tensor matrices... ${(remainingTime/1000).toFixed(1)}s`,
              targets: { stopLoss: 0, takeProfit: 0 },
              timestamp: now
         });
@@ -156,14 +153,14 @@ const App: React.FC = () => {
 
     // GUARD 3: No Data
     if (candlesRef.current.length === 0) {
-        console.warn(`[HUNTER] No candle data for ${symbolRef.current}. Skipping...`);
-        setValidationMsg("No Data - Skipping");
+        console.warn(`[ANTIGRAVITY] No candle data for ${symbolRef.current}. Skipping...`);
+        setValidationMsg("No Data");
         
         setAiSignal({
             action: SignalType.WAIT,
             confidence: 0,
             leverage: 0,
-            reasoning: `Market data stream interrupted for ${symbolRef.current}. Moving to next asset...`,
+            reasoning: `Data stream interrupted for ${symbolRef.current}. Relocating...`,
             targets: { stopLoss: 0, takeProfit: 0 },
             timestamp: now
         });
@@ -199,7 +196,7 @@ const App: React.FC = () => {
               action: SignalType.WAIT,
               confidence: 0,
               leverage: 1,
-              reasoning: "Neural analysis inconclusive or data insufficient. Continuing scan...",
+              reasoning: "Neural convergence failed. Retrying calculation...",
               targets: { stopLoss: 0, takeProfit: 0 },
               timestamp: Date.now()
           };
@@ -212,12 +209,10 @@ const App: React.FC = () => {
 
           if (isActionable && signal) {
               
-              // AGGRESSIVE: Confidence > 65%
-              if (signal.confidence < 65) {
+              if (signal.confidence < 70) {
                    setValidationMsg(`Low Conf: ${signal.confidence}%`);
-                   setAiSignal(prev => prev ? ({...prev, reasoning: `[SKIPPED: Conf < 65%] ${prev.reasoning}`}) : null);
+                   setAiSignal(prev => prev ? ({...prev, reasoning: `[SKIPPED: Model Confidence < 70%] ${prev.reasoning}`}) : null);
                    
-                   // SLOWED DOWN: Wait 8s (was 5s) to let user read the reasoning
                    if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
                    scanTimeoutRef.current = setTimeout(rotateAsset, 8000);
                    return;
@@ -225,40 +220,14 @@ const App: React.FC = () => {
 
               const executionPrice = pricesRef.current[symbolRef.current] || ticker?.price || candlesRef.current[candlesRef.current.length-1].close;
               
-              // FORCE EXECUTION LOGIC (Auto-Adjust instead of Reject)
               const minDistance = executionPrice * 0.0005; 
               
               let finalTP = signal.targets.takeProfit;
               let finalSL = signal.targets.stopLoss;
-              let adjusted = false;
 
-              if (signal.action === SignalType.BUY) {
-                  if (finalTP <= executionPrice + minDistance) {
-                      finalTP = executionPrice + (minDistance * 3); 
-                      adjusted = true;
-                  }
-                  if (finalSL >= executionPrice - minDistance) {
-                      finalSL = executionPrice - (minDistance * 2);
-                      adjusted = true;
-                  }
-              } else { // SELL
-                  if (finalTP >= executionPrice - minDistance) {
-                      finalTP = executionPrice - (minDistance * 3);
-                      adjusted = true;
-                  }
-                  if (finalSL <= executionPrice + minDistance) {
-                      finalSL = executionPrice + (minDistance * 2);
-                      adjusted = true;
-                  }
-              }
-
-              if (adjusted) {
-                  console.log(`[EXECUTION] Targets adjusted for safety on ${symbolRef.current}`);
-                  setAiSignal(prev => prev ? ({
-                      ...prev, 
-                      targets: { takeProfit: finalTP, stopLoss: finalSL },
-                      reasoning: `[AUTO-ADJUSTED TARGETS] ${prev.reasoning}`
-                  }) : null);
+              // Basic safety check for TP/SL distance
+              if (Math.abs(executionPrice - finalSL) < minDistance) {
+                  finalSL = signal.action === 'BUY' ? executionPrice * 0.995 : executionPrice * 1.005;
               }
 
               // --- EXECUTION ---
@@ -266,11 +235,21 @@ const App: React.FC = () => {
               if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
 
               const selectedLeverage = Math.min(Math.max(1, signal.leverage), 20); 
-              const margin = Math.min(balanceRef.current * 0.20, 20); 
               
-              if (margin < 5) {
-                   console.log("Insufficient funds for new position");
-                   setValidationMsg("No Funds");
+              // KELLY CRITERION SIZING LOGIC
+              // Use Kelly from signal, default to 20% max margin if not provided or safe
+              let optimalMargin = balanceRef.current * 0.20;
+              if (signal.quantMetrics && signal.quantMetrics.kellyPercent > 0) {
+                  // Fractional Kelly (Half Kelly) for safety
+                  const safeKelly = signal.quantMetrics.kellyPercent / 2;
+                  optimalMargin = balanceRef.current * (safeKelly / 100);
+              }
+              // Hard cap at 20 USDT for this demo to prolong life
+              const margin = Math.min(Math.max(optimalMargin, 5), 20);
+              
+              if (balanceRef.current < 5) {
+                   console.log("Insufficient funds");
+                   setValidationMsg("Insolvent");
                    isExecutingRef.current = false;
                    scanTimeoutRef.current = setTimeout(rotateAsset, 8000);
                    return;
@@ -297,10 +276,8 @@ const App: React.FC = () => {
               setPositions(prev => [...prev, newPos]);
               setBalance(prev => prev - margin); // Deduct used margin
               
-              console.log(`OPENED: ${type} ${symbolRef.current} @ ${executionPrice}`);
+              console.log(`ANTIGRAVITY EXECUTION: ${type} ${symbolRef.current} @ ${executionPrice}`);
               
-              // Unlock and rotate after a delay to watch the trade start.
-              // SLOWED DOWN: Wait 12s (was 8s) to celebrate the trade
               setTimeout(() => {
                   isExecutingRef.current = false;
                   if (autoModeRef.current) rotateAsset();
@@ -308,7 +285,6 @@ const App: React.FC = () => {
 
           } else {
               // NO SIGNAL -> ROTATE
-              // SLOWED DOWN: Wait 8s (was 5s)
               if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
               scanTimeoutRef.current = setTimeout(rotateAsset, 8000); 
           }
@@ -320,7 +296,7 @@ const App: React.FC = () => {
           action: SignalType.WAIT,
           confidence: 0,
           leverage: 1,
-          reasoning: "System Alert: Analysis Engine interrupted. Rotating to next asset...",
+          reasoning: "System Alert: Neural Core interrupted. Rotating...",
           targets: { stopLoss: 0, takeProfit: 0 },
           timestamp: Date.now()
       });
@@ -340,7 +316,7 @@ const App: React.FC = () => {
         const currentIndex = SUPPORTED_ASSETS.indexOf(symbolRef.current);
         const nextIndex = (currentIndex + 1) % SUPPORTED_ASSETS.length;
         const nextAsset = SUPPORTED_ASSETS[nextIndex];
-        console.log(`[HUNTER] >> ${nextAsset}`);
+        console.log(`[ANTIGRAVITY] >> ${nextAsset}`);
         setCurrentSymbol(nextAsset);
     }
   };
@@ -350,12 +326,11 @@ const App: React.FC = () => {
     if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
     
     setTicker(null); 
-    // IMMEDIATE FEEDBACK: Don't set to null, set to 'Scanning' so UI doesn't look dead
     setAiSignal({
         action: SignalType.WAIT,
         confidence: 0,
         leverage: 0,
-        reasoning: `Scanning market structure for ${currentSymbol}...`,
+        reasoning: `Loading tensors for ${currentSymbol}...`,
         targets: { stopLoss: 0, takeProfit: 0 },
         timestamp: Date.now()
     });
@@ -366,12 +341,10 @@ const App: React.FC = () => {
     const initData = async () => {
       const history = await fetchHistoricalCandles(currentSymbol, DEFAULT_INTERVAL);
       
-      // DEADLOCK PREVENTION
       if (!history || history.length === 0) {
-          console.warn(`[HUNTER] Init failed for ${currentSymbol}. Skipping...`);
-          setValidationMsg("Data Fetch Failed");
-          // Ensure signal is explicit about failure
-          setAiSignal(prev => ({...prev!, reasoning: "Connection failed. Retrying..."}));
+          console.warn(`[ANTIGRAVITY] Init failed for ${currentSymbol}.`);
+          setValidationMsg("Data Failed");
+          setAiSignal(prev => ({...prev!, reasoning: "Feed Error. Retrying..."}));
           if (autoModeRef.current) {
              scanTimeoutRef.current = setTimeout(rotateAsset, 3000);
           }
@@ -381,7 +354,6 @@ const App: React.FC = () => {
       setCandles(history);
       candlesRef.current = history;
       
-      // Wait 2.5s then scan
       if (autoModeRef.current) {
           scanTimeoutRef.current = setTimeout(() => handleScanMarket(), 2500);
       }
@@ -510,14 +482,14 @@ const App: React.FC = () => {
     console.log(`CLOSED ${pos.symbol} (${result}): ${netPnL.toFixed(2)} USDT`);
     
     if (pos.symbol === symbolRef.current) {
-        setAiSignal(prev => prev ? { ...prev, action: SignalType.WAIT, reasoning: `Closed ${pos.symbol}. Net: ${netPnL.toFixed(2)}` } : null);
+        setAiSignal(prev => prev ? { ...prev, action: SignalType.WAIT, reasoning: `Closed ${pos.symbol}. Realized: ${netPnL.toFixed(2)}` } : null);
     }
   };
 
   const manualClose = (targetPos: Position) => {
       const price = pricesRef.current[targetPos.symbol];
       if (!price) {
-          alert("Price data not yet available for " + targetPos.symbol);
+          alert("Waiting for tick data for " + targetPos.symbol);
           return;
       }
       let isWin = false;
@@ -536,7 +508,7 @@ const App: React.FC = () => {
   };
 
   const resetAccount = () => {
-      if(confirm("Reset account to 100 USDT and clear history?")) {
+      if(confirm("Factory Reset: Antigravity Core?")) {
           setBalance(100);
           setPositions([]);
           setTradeHistory([]);
@@ -553,8 +525,8 @@ const App: React.FC = () => {
       <header className="h-14 border-b border-trade-border bg-trade-panel flex items-center px-4 justify-between sticky top-0 z-50 shadow-md">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
-            <svg className="w-6 h-6 text-yellow-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l-2.4 7.2h4.8L12 2zm-1.8 8.4L6.6 22h10.8l-3.6-11.6H10.2z"/></svg>
-            <h1 className="font-bold text-lg tracking-tight text-white hidden sm:block">BINANCE<span className="text-yellow-500">AI</span> PRO</h1>
+            <svg className="w-6 h-6 text-purple-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l-2.4 7.2h4.8L12 2zm-1.8 8.4L6.6 22h10.8l-3.6-11.6H10.2z"/></svg>
+            <h1 className="font-bold text-lg tracking-tight text-white hidden sm:block">PROJECT <span className="text-purple-500">ANTIGRAVITY</span></h1>
           </div>
           
           <div className="flex items-center gap-2">
@@ -568,14 +540,14 @@ const App: React.FC = () => {
                 ))}
             </select>
             {isAutoMode && (
-                 <div className="flex items-center gap-1 text-[10px] text-yellow-500 border border-yellow-500/30 px-2 py-0.5 rounded-full animate-pulse">
-                    <span className="w-1.5 h-1.5 bg-yellow-500 rounded-full"></span>
-                    HUNTER: {currentSymbol}
+                 <div className="flex items-center gap-1 text-[10px] text-purple-500 border border-purple-500/30 px-2 py-0.5 rounded-full animate-pulse">
+                    <span className="w-1.5 h-1.5 bg-purple-500 rounded-full"></span>
+                    AG AGENT: {currentSymbol}
                  </div>
             )}
             {positions.length > 0 && (
                 <span className="text-[10px] bg-blue-900/50 text-blue-300 border border-blue-500/30 px-2 rounded">
-                    {positions.length} ACTIVE
+                    {positions.length} OPEN
                 </span>
             )}
           </div>
@@ -585,12 +557,12 @@ const App: React.FC = () => {
                 onClick={toggleAutoMode}
                 className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold transition-all border ${
                     isAutoMode 
-                    ? 'bg-yellow-500 text-black border-yellow-500 animate-pulse shadow-[0_0_10px_rgba(234,179,8,0.5)]' 
+                    ? 'bg-purple-500 text-white border-purple-500 animate-pulse shadow-[0_0_15px_rgba(168,85,247,0.5)]' 
                     : 'bg-transparent text-trade-muted border-trade-border hover:border-gray-500'
                 }`}
             >
-                <div className={`w-2 h-2 rounded-full ${isAutoMode ? 'bg-black' : 'bg-gray-500'}`}></div>
-                {isAutoMode ? 'AI ACTIVE' : 'MANUAL'}
+                <div className={`w-2 h-2 rounded-full ${isAutoMode ? 'bg-white' : 'bg-gray-500'}`}></div>
+                {isAutoMode ? 'AUTONOMOUS' : 'MANUAL'}
             </button>
             <button onClick={resetAccount} className="text-trade-muted hover:text-white text-xs underline">
                 Reset
@@ -601,7 +573,7 @@ const App: React.FC = () => {
         {ticker && (
           <div className="flex items-center gap-6 text-xs font-mono">
              <div>
-                <span className="text-trade-muted block text-[10px]">PRICE</span>
+                <span className="text-trade-muted block text-[10px]">MARKET PRICE</span>
                 <span className={`text-base font-bold ${ticker.changePercent >= 0 ? 'text-trade-green' : 'text-trade-red'}`}>
                   {ticker.price.toFixed(ticker.price < 1 ? 6 : 2)}
                 </span>
@@ -626,7 +598,8 @@ const App: React.FC = () => {
                <div className="flex gap-2 items-center">
                  <span className="text-sm font-bold text-white">{currentSymbol}</span>
                  <span className="text-xs text-trade-muted bg-trade-bg px-1 rounded border border-trade-border pt-0.5">1m</span>
-                 <span className="text-[10px] text-yellow-500 ml-2 border border-yellow-500/30 px-1 rounded">BB(20,2)</span>
+                 <span className="text-[10px] text-purple-400 ml-2 border border-purple-500/30 px-1 rounded">Kalman(0.1)</span>
+                 <span className="text-[10px] text-yellow-500 ml-1 border border-yellow-500/30 px-1 rounded">BB(20,2)</span>
                  {currentChartPosition && (
                      <span className="text-[10px] bg-purple-900/50 text-purple-300 border border-purple-500/50 px-1 rounded ml-1 animate-pulse">x{currentChartPosition.leverage}</span>
                  )}
@@ -650,7 +623,7 @@ const App: React.FC = () => {
           <div className="flex-1 min-h-[300px] bg-trade-panel rounded border border-trade-border flex flex-col">
             <div className="p-2 border-b border-trade-border flex justify-between items-center">
               <h3 className="text-xs font-bold text-trade-text">Order Book</h3>
-              <span className="text-[10px] text-trade-muted">Real-time</span>
+              <span className="text-[10px] text-trade-muted">L2 Data</span>
             </div>
             <div className="flex-1 overflow-hidden">
               <OrderBook data={orderBook} currentPrice={ticker?.price || 0} />
