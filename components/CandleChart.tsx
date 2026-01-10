@@ -41,10 +41,10 @@ const CustomTooltip = ({ active, payload, label }: any) => {
       <div className="bg-trade-panel border border-trade-border p-2 rounded shadow-lg text-xs font-mono z-50">
         <p className="text-trade-muted mb-1 pb-1 border-b border-gray-700">{new Date(data.time).toLocaleTimeString()}</p>
         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-            <span className="text-trade-muted">Price:</span> <span className="text-white text-right">{data.close.toFixed(2)}</span>
+            <span className="text-trade-muted">Precio:</span> <span className="text-white text-right">{data.close.toFixed(2)}</span>
             {data.kalman && (
                  <>
-                    <span className="text-purple-400">Kalman (Filter):</span> <span className="text-purple-400 text-right">{data.kalman.toFixed(2)}</span>
+                    <span className="text-purple-400">Kalman (Filtro):</span> <span className="text-purple-400 text-right">{data.kalman.toFixed(2)}</span>
                  </>
             )}
             <span className="text-trade-muted">Vol:</span> <span className="text-white text-right">{Math.floor(data.volume)}</span>
@@ -69,7 +69,7 @@ export const CandleChart: React.FC<CandleChartProps> = ({ data, activePosition }
     }));
   }, [data]);
 
-  if (!data || data.length === 0) return <div className="flex items-center justify-center h-full text-trade-muted text-xs animate-pulse">Initializing Antigravity Matrix...</div>;
+  if (!data || data.length === 0) return <div className="flex items-center justify-center h-full text-trade-muted text-xs animate-pulse">Inicializando Matriz Antigravedad...</div>;
 
   let minPrice = Math.min(...data.map(d => d.low));
   let maxPrice = Math.max(...data.map(d => d.high));
@@ -149,7 +149,7 @@ export const CandleChart: React.FC<CandleChartProps> = ({ data, activePosition }
                  <Label value={`SL ${activePosition.sl.toFixed(2)}`} position="insideBottomRight" fill="#f6465d" fontSize={11} fontWeight="bold" offset={-10} />
               </ReferenceLine>
               <ReferenceLine yAxisId="price" y={activePosition.entryPrice} stroke="#FCD535" strokeWidth={1} strokeOpacity={0.8}>
-                <Label value="ENTRY" position="right" fill="#FCD535" fontSize={10} />
+                <Label value="ENTRADA" position="right" fill="#FCD535" fontSize={10} />
               </ReferenceLine>
             </>
           )}

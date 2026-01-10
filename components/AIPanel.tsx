@@ -30,14 +30,14 @@ export const AIPanel: React.FC<AIPanelProps> = ({ signal, loading, onAnalyze }) 
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-white font-bold flex items-center gap-2 text-sm">
           <span className={`w-2 h-2 rounded-full ${loading ? 'bg-purple-500' : 'bg-blue-500'} animate-pulse`}></span>
-          ANTIGRAVITY CORE
+          NÚCLEO ANTIGRAVEDAD
         </h2>
         <button 
           onClick={onAnalyze}
           disabled={loading}
           className={`px-3 py-1 text-xs font-bold rounded transition-colors ${loading ? 'bg-gray-700 text-gray-400' : 'bg-purple-600 hover:bg-purple-500 text-white'}`}
         >
-          {loading ? 'COMPUTING...' : 'FORCE CYCLE'}
+          {loading ? 'CALCULANDO...' : 'FORZAR CICLO'}
         </button>
       </div>
 
@@ -51,7 +51,7 @@ export const AIPanel: React.FC<AIPanelProps> = ({ signal, loading, onAnalyze }) 
                   {signal.leverage}x LEV
                </div>
              )}
-            <div className="text-[10px] text-trade-muted uppercase tracking-wider">Optimal Action (PPO)</div>
+            <div className="text-[10px] text-trade-muted uppercase tracking-wider">Acción Óptima (PPO)</div>
             <div className="text-3xl font-black tracking-tighter">{signal.action}</div>
           </div>
 
@@ -59,21 +59,21 @@ export const AIPanel: React.FC<AIPanelProps> = ({ signal, loading, onAnalyze }) 
           {signal.quantMetrics && (
               <div className="grid grid-cols-2 gap-2">
                  <div className="bg-trade-bg p-2 rounded border border-trade-border">
-                    <div className="text-[9px] text-trade-muted uppercase">HURST (Regime)</div>
+                    <div className="text-[9px] text-trade-muted uppercase">HURST (Régimen)</div>
                     <div className={`text-xs font-mono font-bold ${signal.quantMetrics.hurst > 0.5 ? 'text-purple-400' : 'text-blue-400'}`}>
-                        {signal.quantMetrics.hurst.toFixed(3)} {signal.quantMetrics.hurst > 0.5 ? 'TREND' : 'MEAN'}
+                        {signal.quantMetrics.hurst.toFixed(3)} {signal.quantMetrics.hurst > 0.5 ? 'TEND' : 'RANGO'}
                     </div>
                  </div>
                  <div className="bg-trade-bg p-2 rounded border border-trade-border">
-                    <div className="text-[9px] text-trade-muted uppercase">Kelly Criterion</div>
+                    <div className="text-[9px] text-trade-muted uppercase">Criterio Kelly</div>
                     <div className="text-xs font-mono font-bold text-white">
-                        {signal.quantMetrics.kellyPercent.toFixed(1)}% Risk
+                        {signal.quantMetrics.kellyPercent.toFixed(1)}% Riesgo
                     </div>
                  </div>
                  <div className="bg-trade-bg p-2 rounded border border-trade-border col-span-2">
-                    <div className="text-[9px] text-trade-muted uppercase">Kalman Filter Delta</div>
+                    <div className="text-[9px] text-trade-muted uppercase">Delta Filtro Kalman</div>
                     <div className="text-xs font-mono font-bold text-gray-300">
-                       Filtered Price: {signal.quantMetrics.kalmanPrice.toFixed(2)}
+                       Precio Filtrado: {signal.quantMetrics.kalmanPrice.toFixed(2)}
                     </div>
                  </div>
               </div>
@@ -81,18 +81,18 @@ export const AIPanel: React.FC<AIPanelProps> = ({ signal, loading, onAnalyze }) 
 
           {/* Reasoning */}
           <div className="bg-trade-bg p-2 rounded border border-trade-border flex-1">
-            <div className="text-[9px] text-trade-muted mb-1">STRATEGY ENGINE OUTPUT</div>
+            <div className="text-[9px] text-trade-muted mb-1">SALIDA MOTOR ESTRATEGIA</div>
             <p className="text-xs text-gray-300 italic leading-tight">"{signal.reasoning}"</p>
           </div>
 
           {/* Targets */}
           <div className="grid grid-cols-2 gap-2 mt-auto">
             <div className="bg-trade-bg p-1.5 rounded border border-trade-border">
-              <div className="text-[9px] text-trade-muted uppercase">Dynamic SL (ATR)</div>
+              <div className="text-[9px] text-trade-muted uppercase">SL Dinámico (ATR)</div>
               <div className="text-trade-red font-mono text-xs font-bold">{signal.targets.stopLoss}</div>
             </div>
             <div className="bg-trade-bg p-1.5 rounded border border-trade-border">
-              <div className="text-[9px] text-trade-muted uppercase">Target</div>
+              <div className="text-[9px] text-trade-muted uppercase">Objetivo</div>
               <div className="text-trade-green font-mono text-xs font-bold">{signal.targets.takeProfit}</div>
             </div>
           </div>
@@ -102,7 +102,7 @@ export const AIPanel: React.FC<AIPanelProps> = ({ signal, loading, onAnalyze }) 
         <div className="flex-1 flex items-center justify-center text-trade-muted text-sm text-center">
           <div className="flex flex-col gap-2 items-center">
              <div className="w-8 h-8 border-2 border-t-purple-500 border-trade-border rounded-full animate-spin"></div>
-             <p className="text-xs">{loading ? 'Running Quant Models...' : 'Awaiting Data Stream...'}</p>
+             <p className="text-xs">{loading ? 'Ejecutando Modelos Cuant...' : 'Esperando Flujo de Datos...'}</p>
           </div>
         </div>
       )}

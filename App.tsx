@@ -10,26 +10,25 @@ import { CandleData, OrderBookData, TickerData, AISignal, SignalType, Position, 
 import { DEFAULT_SYMBOL, DEFAULT_INTERVAL, SUPPORTED_ASSETS, TRADING_FEE_RATE, TRAILING_STOP_GAP, MIN_AI_INTERVAL } from './constants';
 
 const App: React.FC = () => {
-  // Market State
+  // Estado del Mercado
   const [currentSymbol, setCurrentSymbol] = useState(DEFAULT_SYMBOL);
   const [candles, setCandles] = useState<CandleData[]>([]);
   const [ticker, setTicker] = useState<TickerData | null>(null);
   const [orderBook, setOrderBook] = useState<OrderBookData | null>(null);
   
-  // AI & Trading State
+  // Estado AI y Trading
   const [aiSignal, setAiSignal] = useState<AISignal | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isCoolingDown, setIsCoolingDown] = useState(false);
   const [isAutoMode, setIsAutoMode] = useState(true); 
   const [validationMsg, setValidationMsg] = useState<string | null>(null);
   
-  // Portfolio State - MULTIPLE POSITIONS
+  // Estado del Portafolio
   const [balance, setBalance] = useState(() => {
     const saved = localStorage.getItem('trade_balance');
     return saved ? parseFloat(saved) : 100;
   });
   
-  // Changed from single position to array of positions
   const [positions, setPositions] = useState<Position[]>(() => {
     const saved = localStorage.getItem('trade_positions');
     return saved ? JSON.parse(saved) : [];
@@ -40,7 +39,7 @@ const App: React.FC = () => {
     return saved ? JSON.parse(saved) : [];
   });
 
-  // Refs
+  // Referencias (Refs)
   const candlesRef = useRef<CandleData[]>([]);
   const positionsRef = useRef<Position[]>(positions);
   const balanceRef = useRef(balance);
@@ -51,11 +50,10 @@ const App: React.FC = () => {
   const symbolRef = useRef(DEFAULT_SYMBOL);
   const scanTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
-  // Global Price Cache for Multi-Asset TP/SL monitoring
   const pricesRef = useRef<Record<string, number>>({}); 
-  const isExecutingRef = useRef(false); // Lock specifically for opening new trades
+  const isExecutingRef = useRef(false);
 
-  // Sync refs & LocalStorage
+  // Sincronización Refs y LocalStorage
   useEffect(() => { 
     positionsRef.current = positions; 
     localStorage.setItem('trade_positions', JSON.stringify(positions));
@@ -74,39 +72,32 @@ const App: React.FC = () => {
   useEffect(() => { autoModeRef.current = isAutoMode; }, [isAutoMode]);
   useEffect(() => { symbolRef.current = currentSymbol; }, [currentSymbol]);
 
-  // --- GLOBAL PRICE MONITOR (For TP/SL on all assets) ---
+  // --- MONITOR DE PRECIOS GLOBAL ---
   useEffect(() => {
-      // Subscribe to all supported assets to monitor background positions
       const unsubMulti = subscribeToMultiTicker(SUPPORTED_ASSETS, (data) => {
-          // Update global price cache
           pricesRef.current[data.symbol] = data.price;
-          
-          // Check execution for ALL positions
           checkGlobalAutoExecution(data.symbol, data.price);
       });
       return () => unsubMulti();
   }, []);
 
-  // --- ANALYSIS ENGINE ---
+  // --- MOTOR DE ANÁLISIS ---
   const handleScanMarket = async () => {
     const now = Date.now();
     const currentPrice = ticker?.price || (candlesRef.current.length > 0 ? candlesRef.current[candlesRef.current.length-1].close : 0);
 
-    // GUARD 1: Position Active on this Symbol
-    // Instead of just returning, we generate a SYNTHETIC "HOLD" SIGNAL so the UI looks alive.
+    // GUARDIA 1: Posición Activa
     const existingPosition = positionsRef.current.find(p => p.symbol === symbolRef.current);
     if (existingPosition) {
-        setValidationMsg("Monitoring Position");
+        setValidationMsg("Monitoreando Posición");
         
-        // Calc live PnL for display
         const pnl = (currentPrice - existingPosition.entryPrice) * existingPosition.amount * (existingPosition.type === 'LONG' ? 1 : -1);
-        const pnlPct = (pnl / existingPosition.initialMargin) * 100;
 
         setAiSignal({
             action: SignalType.HOLD,
             confidence: 100,
             leverage: existingPosition.leverage,
-            reasoning: `ANTIGRAVITY GUARD: Managing active ${existingPosition.type} position. PnL: ${pnl.toFixed(2)} USDT. Denoising price action...`,
+            reasoning: `GUARDIA ANTIGRAVEDAD: Gestionando posición ${existingPosition.type}. PnL: ${pnl.toFixed(2)} USDT. Filtrando ruido...`,
             targets: {
                 stopLoss: existingPosition.sl,
                 takeProfit: existingPosition.tp
@@ -116,14 +107,14 @@ const App: React.FC = () => {
 
         if (autoModeRef.current) {
             if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
-            scanTimeoutRef.current = setTimeout(rotateAsset, 6000); 
+            scanTimeoutRef.current = setTimeout(rotateAsset, 3000); // Rotación rápida si ya tenemos posición
         }
         return;
     }
 
     if (isExecutingRef.current) return;
 
-    // GUARD 2: RPM Protection
+    // GUARDIA 2: Protección RPM (Rate Limit)
     const timeElapsed = now - lastScanTimeRef.current;
     if (timeElapsed < MIN_AI_INTERVAL) {
         const remainingTime = MIN_AI_INTERVAL - timeElapsed + 500;
@@ -133,7 +124,7 @@ const App: React.FC = () => {
              action: SignalType.WAIT,
              confidence: 0,
              leverage: 0,
-             reasoning: `Calibrating tensor matrices... ${(remainingTime/1000).toFixed(1)}s`,
+             reasoning: `Sincronizando reloj cuántico... ${(remainingTime/1000).toFixed(1)}s`,
              targets: { stopLoss: 0, takeProfit: 0 },
              timestamp: now
         });
@@ -145,29 +136,27 @@ const App: React.FC = () => {
                 handleScanMarket();
             }, remainingTime);
         } else {
-             setValidationMsg(`Wait: ${(remainingTime/1000).toFixed(1)}s`);
+             setValidationMsg(`Espera: ${(remainingTime/1000).toFixed(1)}s`);
              setTimeout(() => { setValidationMsg(null); setIsCoolingDown(false); }, 2000);
         }
         return;
     }
 
-    // GUARD 3: No Data
+    // GUARDIA 3: Sin Datos
     if (candlesRef.current.length === 0) {
-        console.warn(`[ANTIGRAVITY] No candle data for ${symbolRef.current}. Skipping...`);
-        setValidationMsg("No Data");
-        
+        setValidationMsg("Sin Datos");
         setAiSignal({
             action: SignalType.WAIT,
             confidence: 0,
             leverage: 0,
-            reasoning: `Data stream interrupted for ${symbolRef.current}. Relocating...`,
+            reasoning: `Flujo de datos interrumpido para ${symbolRef.current}. Reubicando...`,
             targets: { stopLoss: 0, takeProfit: 0 },
             timestamp: now
         });
 
         if (autoModeRef.current) {
             if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
-            scanTimeoutRef.current = setTimeout(rotateAsset, 3000);
+            scanTimeoutRef.current = setTimeout(rotateAsset, 2000);
         }
         return;
     }
@@ -190,13 +179,12 @@ const App: React.FC = () => {
           tradeHistoryRef.current 
       );
       
-      // Fallback if API fails
       if (!signal) {
           signal = {
               action: SignalType.WAIT,
               confidence: 0,
               leverage: 1,
-              reasoning: "Neural convergence failed. Retrying calculation...",
+              reasoning: "Convergencia neuronal fallida. Reintentando cálculo...",
               targets: { stopLoss: 0, takeProfit: 0 },
               timestamp: Date.now()
           };
@@ -210,48 +198,42 @@ const App: React.FC = () => {
           if (isActionable && signal) {
               
               if (signal.confidence < 70) {
-                   setValidationMsg(`Low Conf: ${signal.confidence}%`);
-                   setAiSignal(prev => prev ? ({...prev, reasoning: `[SKIPPED: Model Confidence < 70%] ${prev.reasoning}`}) : null);
+                   setValidationMsg(`Conf Baja: ${signal.confidence}%`);
+                   setAiSignal(prev => prev ? ({...prev, reasoning: `[OMITIDO: Confianza Modelo < 70%] ${prev.reasoning}`}) : null);
                    
                    if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
-                   scanTimeoutRef.current = setTimeout(rotateAsset, 8000);
+                   scanTimeoutRef.current = setTimeout(rotateAsset, 3000); // Rotación rápida si hay baja confianza
                    return;
               }
 
               const executionPrice = pricesRef.current[symbolRef.current] || ticker?.price || candlesRef.current[candlesRef.current.length-1].close;
-              
               const minDistance = executionPrice * 0.0005; 
               
               let finalTP = signal.targets.takeProfit;
               let finalSL = signal.targets.stopLoss;
 
-              // Basic safety check for TP/SL distance
               if (Math.abs(executionPrice - finalSL) < minDistance) {
                   finalSL = signal.action === 'BUY' ? executionPrice * 0.995 : executionPrice * 1.005;
               }
 
-              // --- EXECUTION ---
-              isExecutingRef.current = true; // Lock opening new trades briefly
+              // EJECUCIÓN
+              isExecutingRef.current = true; 
               if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
 
               const selectedLeverage = Math.min(Math.max(1, signal.leverage), 20); 
               
-              // KELLY CRITERION SIZING LOGIC
-              // Use Kelly from signal, default to 20% max margin if not provided or safe
+              // CRITERIO DE KELLY
               let optimalMargin = balanceRef.current * 0.20;
               if (signal.quantMetrics && signal.quantMetrics.kellyPercent > 0) {
-                  // Fractional Kelly (Half Kelly) for safety
                   const safeKelly = signal.quantMetrics.kellyPercent / 2;
                   optimalMargin = balanceRef.current * (safeKelly / 100);
               }
-              // Hard cap at 20 USDT for this demo to prolong life
               const margin = Math.min(Math.max(optimalMargin, 5), 20);
               
               if (balanceRef.current < 5) {
-                   console.log("Insufficient funds");
-                   setValidationMsg("Insolvent");
+                   setValidationMsg("Sin Fondos");
                    isExecutingRef.current = false;
-                   scanTimeoutRef.current = setTimeout(rotateAsset, 8000);
+                   scanTimeoutRef.current = setTimeout(rotateAsset, 4000);
                    return;
               }
 
@@ -274,35 +256,44 @@ const App: React.FC = () => {
               };
               
               setPositions(prev => [...prev, newPos]);
-              setBalance(prev => prev - margin); // Deduct used margin
+              setBalance(prev => prev - margin); 
               
-              console.log(`ANTIGRAVITY EXECUTION: ${type} ${symbolRef.current} @ ${executionPrice}`);
+              console.log(`EJECUCIÓN ANTIGRAVEDAD: ${type} ${symbolRef.current} @ ${executionPrice}`);
               
               setTimeout(() => {
                   isExecutingRef.current = false;
                   if (autoModeRef.current) rotateAsset();
-              }, 12000); 
+              }, 6000); // Breve pausa tras ejecución antes de rotar
 
           } else {
-              // NO SIGNAL -> ROTATE
               if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
-              scanTimeoutRef.current = setTimeout(rotateAsset, 8000); 
+              scanTimeoutRef.current = setTimeout(rotateAsset, 3000); // 3s si no hay señal
           }
       }
 
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      let waitTime = 3000;
+      let reason = "Alerta de Sistema: Núcleo Neuronal interrumpido. Rotando...";
+
+      if (e.message === "RATE_LIMIT" || e.code === 429 || e?.error?.code === 429) {
+          waitTime = 60000; 
+          reason = "CUOTA API AGOTADA (429). Pausando 60s para recargar capacitores...";
+          setValidationMsg("ENFRIAMIENTO 429");
+          setIsCoolingDown(true);
+      }
+
       setAiSignal({
           action: SignalType.WAIT,
           confidence: 0,
           leverage: 1,
-          reasoning: "System Alert: Neural Core interrupted. Rotating...",
+          reasoning: reason,
           targets: { stopLoss: 0, takeProfit: 0 },
           timestamp: Date.now()
       });
 
       if(autoModeRef.current) {
-          scanTimeoutRef.current = setTimeout(rotateAsset, 8000); 
+          scanTimeoutRef.current = setTimeout(rotateAsset, waitTime); 
       }
     } finally {
       setIsAiLoading(false);
@@ -316,12 +307,12 @@ const App: React.FC = () => {
         const currentIndex = SUPPORTED_ASSETS.indexOf(symbolRef.current);
         const nextIndex = (currentIndex + 1) % SUPPORTED_ASSETS.length;
         const nextAsset = SUPPORTED_ASSETS[nextIndex];
-        console.log(`[ANTIGRAVITY] >> ${nextAsset}`);
+        console.log(`[ANTIGRAVEDAD] >> ${nextAsset}`);
         setCurrentSymbol(nextAsset);
     }
   };
 
-  // --- INIT DATA ON SYMBOL CHANGE ---
+  // --- INICIALIZACIÓN ---
   useEffect(() => {
     if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
     
@@ -330,7 +321,7 @@ const App: React.FC = () => {
         action: SignalType.WAIT,
         confidence: 0,
         leverage: 0,
-        reasoning: `Loading tensors for ${currentSymbol}...`,
+        reasoning: `Cargando tensores para ${currentSymbol}...`,
         targets: { stopLoss: 0, takeProfit: 0 },
         timestamp: Date.now()
     });
@@ -342,11 +333,11 @@ const App: React.FC = () => {
       const history = await fetchHistoricalCandles(currentSymbol, DEFAULT_INTERVAL);
       
       if (!history || history.length === 0) {
-          console.warn(`[ANTIGRAVITY] Init failed for ${currentSymbol}.`);
-          setValidationMsg("Data Failed");
-          setAiSignal(prev => ({...prev!, reasoning: "Feed Error. Retrying..."}));
+          console.warn(`[ANTIGRAVEDAD] Fallo al iniciar ${currentSymbol}.`);
+          setValidationMsg("Fallo Datos");
+          setAiSignal(prev => ({...prev!, reasoning: "Error de Feed. Reintentando..."}));
           if (autoModeRef.current) {
-             scanTimeoutRef.current = setTimeout(rotateAsset, 3000);
+             scanTimeoutRef.current = setTimeout(rotateAsset, 2000);
           }
           return;
       }
@@ -355,12 +346,11 @@ const App: React.FC = () => {
       candlesRef.current = history;
       
       if (autoModeRef.current) {
-          scanTimeoutRef.current = setTimeout(() => handleScanMarket(), 2500);
+          scanTimeoutRef.current = setTimeout(() => handleScanMarket(), 1500);
       }
     };
     initData();
 
-    // Subscribe to Main Ticker for UI
     const unsubTicker = subscribeToTicker(currentSymbol, (data) => {
       setTicker(data);
       pricesRef.current[data.symbol] = data.price;
@@ -392,7 +382,7 @@ const App: React.FC = () => {
     };
   }, [currentSymbol]);
 
-  // --- GLOBAL EXECUTION CHECKER ---
+  // --- CHEQUEO DE EJECUCIÓN GLOBAL ---
   const checkGlobalAutoExecution = (symbol: string, currentPrice: number) => {
       const activePositions = positionsRef.current;
       const pos = activePositions.find(p => p.symbol === symbol);
@@ -404,7 +394,7 @@ const App: React.FC = () => {
       let updatedPos = { ...pos };
       let positionUpdated = false;
 
-      // Trailing Stop Logic
+      // Lógica Trailing Stop
       if (pos.type === 'LONG') {
           if (currentPrice > pos.highWaterMark) {
               updatedPos.highWaterMark = currentPrice;
@@ -431,7 +421,7 @@ const App: React.FC = () => {
           else if (currentPrice >= pos.sl) { closed = true; result = 'LOSS'; }
       }
 
-      // Liquidation Check
+      // Liquidación
       const notional = pos.amount * currentPrice;
       const entryNotional = pos.amount * pos.entryPrice;
       let floatingPnL = 0;
@@ -462,7 +452,6 @@ const App: React.FC = () => {
     else grossPnL = entryNotional - exitNotional; 
     
     const netPnL = grossPnL - totalFees;
-    
     const returnAmount = pos.initialMargin + netPnL;
     
     setBalance(prev => Math.max(0, prev + returnAmount));
@@ -479,17 +468,17 @@ const App: React.FC = () => {
     };
     setTradeHistory(prev => [...prev, record]);
     
-    console.log(`CLOSED ${pos.symbol} (${result}): ${netPnL.toFixed(2)} USDT`);
+    console.log(`CERRADO ${pos.symbol} (${result}): ${netPnL.toFixed(2)} USDT`);
     
     if (pos.symbol === symbolRef.current) {
-        setAiSignal(prev => prev ? { ...prev, action: SignalType.WAIT, reasoning: `Closed ${pos.symbol}. Realized: ${netPnL.toFixed(2)}` } : null);
+        setAiSignal(prev => prev ? { ...prev, action: SignalType.WAIT, reasoning: `Cerrado ${pos.symbol}. Realizado: ${netPnL.toFixed(2)}` } : null);
     }
   };
 
   const manualClose = (targetPos: Position) => {
       const price = pricesRef.current[targetPos.symbol];
       if (!price) {
-          alert("Waiting for tick data for " + targetPos.symbol);
+          alert("Esperando datos de tick para " + targetPos.symbol);
           return;
       }
       let isWin = false;
@@ -508,7 +497,7 @@ const App: React.FC = () => {
   };
 
   const resetAccount = () => {
-      if(confirm("Factory Reset: Antigravity Core?")) {
+      if(confirm("¿Reinicio de Fábrica: Núcleo Antigravedad?")) {
           setBalance(100);
           setPositions([]);
           setTradeHistory([]);
@@ -521,12 +510,12 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-trade-bg text-trade-text font-sans flex flex-col">
-      {/* Header */}
+      {/* Cabecera */}
       <header className="h-14 border-b border-trade-border bg-trade-panel flex items-center px-4 justify-between sticky top-0 z-50 shadow-md">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <svg className="w-6 h-6 text-purple-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l-2.4 7.2h4.8L12 2zm-1.8 8.4L6.6 22h10.8l-3.6-11.6H10.2z"/></svg>
-            <h1 className="font-bold text-lg tracking-tight text-white hidden sm:block">PROJECT <span className="text-purple-500">ANTIGRAVITY</span></h1>
+            <h1 className="font-bold text-lg tracking-tight text-white hidden sm:block">PROYECTO <span className="text-purple-500">ANTIGRAVEDAD</span></h1>
           </div>
           
           <div className="flex items-center gap-2">
@@ -542,12 +531,12 @@ const App: React.FC = () => {
             {isAutoMode && (
                  <div className="flex items-center gap-1 text-[10px] text-purple-500 border border-purple-500/30 px-2 py-0.5 rounded-full animate-pulse">
                     <span className="w-1.5 h-1.5 bg-purple-500 rounded-full"></span>
-                    AG AGENT: {currentSymbol}
+                    AGENTE AG: {currentSymbol}
                  </div>
             )}
             {positions.length > 0 && (
                 <span className="text-[10px] bg-blue-900/50 text-blue-300 border border-blue-500/30 px-2 rounded">
-                    {positions.length} OPEN
+                    {positions.length} ACTIVAS
                 </span>
             )}
           </div>
@@ -562,10 +551,10 @@ const App: React.FC = () => {
                 }`}
             >
                 <div className={`w-2 h-2 rounded-full ${isAutoMode ? 'bg-white' : 'bg-gray-500'}`}></div>
-                {isAutoMode ? 'AUTONOMOUS' : 'MANUAL'}
+                {isAutoMode ? 'AUTÓNOMO' : 'MANUAL'}
             </button>
             <button onClick={resetAccount} className="text-trade-muted hover:text-white text-xs underline">
-                Reset
+                Reiniciar
             </button>
           </div>
         </div>
@@ -573,13 +562,13 @@ const App: React.FC = () => {
         {ticker && (
           <div className="flex items-center gap-6 text-xs font-mono">
              <div>
-                <span className="text-trade-muted block text-[10px]">MARKET PRICE</span>
+                <span className="text-trade-muted block text-[10px]">PRECIO MERCADO</span>
                 <span className={`text-base font-bold ${ticker.changePercent >= 0 ? 'text-trade-green' : 'text-trade-red'}`}>
                   {ticker.price.toFixed(ticker.price < 1 ? 6 : 2)}
                 </span>
              </div>
              <div className="hidden sm:block">
-                <span className="text-trade-muted block text-[10px]">24h CHANGE</span>
+                <span className="text-trade-muted block text-[10px]">CAMBIO 24H</span>
                 <span className={ticker.changePercent >= 0 ? 'text-trade-green' : 'text-trade-red'}>
                   {ticker.changePercent > 0 ? '+' : ''}{ticker.changePercent.toFixed(2)}%
                 </span>
@@ -588,10 +577,10 @@ const App: React.FC = () => {
         )}
       </header>
 
-      {/* Main Grid */}
+      {/* Grid Principal */}
       <main className="flex-1 p-1 md:p-2 grid grid-cols-1 md:grid-cols-12 gap-1 md:gap-2 max-h-[calc(100vh-3.5rem)] overflow-hidden">
         
-        {/* Left: Chart Area */}
+        {/* Izquierda: Gráfico */}
         <div className="md:col-span-8 lg:col-span-9 flex flex-col gap-1">
           <div className="flex-1 bg-trade-panel rounded border border-trade-border p-2 min-h-[400px] flex flex-col">
             <div className="flex justify-between items-center mb-2 px-2 shrink-0">
@@ -618,12 +607,12 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Right: OrderBook & AI */}
+        {/* Derecha: OrderBook & AI */}
         <div className="md:col-span-4 lg:col-span-3 flex flex-col gap-1 h-full overflow-hidden">
           <div className="flex-1 min-h-[300px] bg-trade-panel rounded border border-trade-border flex flex-col">
             <div className="p-2 border-b border-trade-border flex justify-between items-center">
-              <h3 className="text-xs font-bold text-trade-text">Order Book</h3>
-              <span className="text-[10px] text-trade-muted">L2 Data</span>
+              <h3 className="text-xs font-bold text-trade-text">Libro de Órdenes</h3>
+              <span className="text-[10px] text-trade-muted">Datos L2</span>
             </div>
             <div className="flex-1 overflow-hidden">
               <OrderBook data={orderBook} currentPrice={ticker?.price || 0} />

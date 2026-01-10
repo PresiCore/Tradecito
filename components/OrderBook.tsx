@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { OrderBookData } from '../types';
 
@@ -7,7 +8,7 @@ interface OrderBookProps {
 }
 
 export const OrderBook: React.FC<OrderBookProps> = ({ data, currentPrice }) => {
-  if (!data) return <div className="text-trade-muted text-xs p-4">Loading Book...</div>;
+  if (!data) return <div className="text-trade-muted text-xs p-4">Cargando Libro...</div>;
 
   // Take top 8 asks (reversed for display from high to low price) and top 8 bids
   const asks = [...data.asks].slice(0, 12).reverse();

@@ -151,8 +151,17 @@ export const analyzeMarketData = async (
     
     return signal;
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Antigravity Core Error:", error);
+    // Explicitly handle 429 Resource Exhausted
+    if (
+        error.status === 429 || 
+        error.code === 429 || 
+        error?.error?.code === 429 ||
+        (error.message && error.message.includes('429'))
+    ) {
+        throw new Error("RATE_LIMIT");
+    }
     return null;
   }
 };

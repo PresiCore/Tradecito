@@ -1,10 +1,10 @@
 
-// Binance API Configuration
-// NOTE: Using Mainnet for Data Visualization to ensure the chart looks "Alive" with high volume.
-export const BINANCE_WS_BASE = 'wss://stream.binance.com:9443/ws'; 
-export const BINANCE_API_BASE = 'https://api.binance.com/api/v3';
+// Configuración de API Binance (TESTNET / DEMO)
+// NOTA: Usamos Testnet como se solicitó. La liquidez puede ser menor que en Mainnet.
+export const BINANCE_WS_BASE = 'wss://testnet.binance.vision/ws'; 
+export const BINANCE_API_BASE = 'https://testnet.binance.vision/api/v3';
 
-// Provided Testnet Credentials
+// Credenciales Testnet (Públicas/Demo)
 export const BINANCE_TESTNET_CONFIG = {
   apiKey: 'PCglNnZsNpTcGqVQ4kO39EZA0rycsqJAtEiI5gyLR3aUd0aQtUB1b5GhJJiLerZc',
   apiSecret: 'ukpZyEMAYBMtgeWJoVhMByFWz6pyNjR0DjL4NhqznjkGuPe1dNR5Ckrxyd1QokFU',
@@ -14,25 +14,27 @@ export const BINANCE_TESTNET_CONFIG = {
 export const DEFAULT_SYMBOL = 'BTCUSDT';
 export const DEFAULT_INTERVAL = '1m';
 
+// Activos disponibles en Testnet (Lista reducida para asegurar datos)
 export const SUPPORTED_ASSETS = [
   'BTCUSDT', 
   'ETHUSDT', 
-  'SOLUSDT', 
   'BNBUSDT', 
   'XRPUSDT', 
-  'DOGEUSDT',
-  'PEPEUSDT'
+  'LTCUSDT',
+  'TRXUSDT'
 ];
 
-export const TRADING_FEE_RATE = 0.0005; // 0.05% Taker Fee (Realistic Futures Fee)
+export const TRADING_FEE_RATE = 0.0005; // 0.05% Taker Fee
 export const TRAILING_STOP_GAP = 0.003; // 0.3% Trailing
 
-// SAFETY & RATE LIMITING
-export const MIN_AI_INTERVAL = 15000; // 15 Seconds - Respects Gemini Rate Limits (4 RPM)
+// SEGURIDAD Y RATE LIMITING
+// Ajustado para Gemini 3.0 Flash (Cuota aprox 30 RPM)
+// 2500ms = ~24 solicitudes por minuto (Margen de seguridad vs 30 RPM)
+export const MIN_AI_INTERVAL = 2500; 
 
-// AI Persona System Instruction - PROJECT ANTIGRAVITY
+// Instrucción del Sistema AI - PROYECTO ANTIGRAVEDAD
 export const AI_SYSTEM_INSTRUCTION = `
-ROL: ARQUITECTO JEFE DE SISTEMAS CUANTITATIVOS (CTO) - PROYECTO ANTIGRAVITY.
+ROL: ARQUITECTO JEFE DE SISTEMAS CUANTITATIVOS (CTO) - PROYECTO ANTIGRAVEDAD.
 Eres un agente autónomo basado en Deep Reinforcement Learning (PPO/SAC Logic).
 
 OBJETIVO:
@@ -59,7 +61,7 @@ FORMATO JSON DE SALIDA:
   "action": "BUY" | "SELL" | "HOLD" | "WAIT",
   "confidence": <number 0-100>,
   "leverage": <number 1-20>,
-  "reasoning": "Explica la decisión usando terminología técnica (Kalman, Hurst, Alpha, Sharpe).",
+  "reasoning": "Explica la decisión usando terminología técnica (Kalman, Hurst, Alpha, Sharpe) en ESPAÑOL.",
   "targets": {
     "stopLoss": <price>,
     "takeProfit": <price>
